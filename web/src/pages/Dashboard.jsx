@@ -1,17 +1,29 @@
 import { useState, useEffect, useMemo } from 'react'
 import { io } from 'socket.io-client'
 import { apiFetch, API_BASE } from '../lib/api.js'
-import { TrendingUp, TrendingDown, Wallet, Zap, BarChart3, PieChart as PieIcon, FileText, Download } from 'lucide-react'
+import { TrendingUp, TrendingDown, Wallet, Zap, BarChart3, PieChart as PieIcon, FileText, Download, Clock } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { processChartData } from '../lib/chartUtils'
+
+const ChartSkeleton = () => (
+  <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', gap: '10px', padding: '10px' }}>
+    <div style={{ flex: 1, background: 'linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite', borderRadius: '12px' }} />
+    <div style={{ height: '20px', display: 'flex', justifyContent: 'space-between' }}>
+      {[1, 2, 3, 4, 5].map(i => <div key={i} style={{ width: '40px', height: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }} />)}
+    </div>
+  </div>
+);
 
 export default function Dashboard() {
   const [marketData, setMarketData] = useState([])
   const [loading, setLoading] = useState(true)
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [portfolio, setPortfolio] = useState(null)
   const [btcHistory, setBtcHistory] = useState([])
   const [livePrices, setLivePrices] = useState({})
   const [isGeneratingReport, setIsGeneratingReport] = useState(false)
   const [lastReport, setLastReport] = useState(null)
+  const [timeframe, setTimeframe] = useState('7D')
 
   useEffect(() => {
     const fetchMarket = async () => {
@@ -34,12 +46,16 @@ export default function Dashboard() {
       }
     }
 
-    const fetchHistory = async () => {
+    const fetchHistory = async (tf) => {
+      setHistoryLoading(true)
       try {
-        const res = await apiFetch('/api/market/bitcoin/history?days=7')
+        const daysMap = { '1D': 1, '7D': 7, '1M': 30, '1Y': 365 }
+        const res = await apiFetch(`/api/market/bitcoin/history?days=${daysMap[tf] || 7}`)
         setBtcHistory(res.data || [])
       } catch (err) {
         console.error('Error fetching history:', err)
+      } finally {
+        setHistoryLoading(false)
       }
     }
 
@@ -48,7 +64,7 @@ export default function Dashboard() {
       await Promise.allSettled([
         fetchMarket(),
         fetchPortfolio(),
-        fetchHistory()
+        fetchHistory(timeframe)
       ])
       setLoading(false)
     }
@@ -67,6 +83,25 @@ export default function Dashboard() {
 
     return () => socket.disconnect()
   }, [])
+
+  // Refetch history on timeframe change
+  useEffect(() => {
+    if (!loading) {
+      const fetchHistory = async (tf) => {
+        setHistoryLoading(true)
+        try {
+          const daysMap = { '1D': 1, '7D': 7, '1M': 30, '1Y': 365 }
+          const res = await apiFetch(`/api/market/bitcoin/history?days=${daysMap[tf] || 7}`)
+          setBtcHistory(res.data || [])
+        } catch (err) {
+          console.error('Error fetching history:', err)
+        } finally {
+          setHistoryLoading(false)
+        }
+      }
+      fetchHistory(timeframe)
+    }
+  }, [timeframe])
 
   const handleGenerateReport = async (type = 'portfolio') => {
     setIsGeneratingReport(true)
@@ -113,11 +148,17 @@ export default function Dashboard() {
   }, [marketData])
 
   const chartData = useMemo(() => {
-    return [...btcHistory].reverse().map(item => ({
-      name: new Date(item.timestamp).toLocaleDateString(undefined, { weekday: 'short' }),
-      value: item.price
-    }))
-  }, [btcHistory])
+    return processChartData(btcHistory, timeframe)
+  }, [btcHistory, timeframe])
+
+  const chartColor = useMemo(() => {
+    if (chartData.length < 2) return 'var(--primary)';
+    const first = chartData[0].value;
+    const last = chartData[chartData.length - 1].value;
+    if (last > first) return 'var(--success)';
+    if (last < first) return 'var(--danger)';
+    return 'var(--primary)';
+  }, [chartData])
 
   if (loading) return (
     <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
@@ -194,31 +235,100 @@ export default function Dashboard() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '2rem' }}>
-        <div className="card" style={{ padding: '2rem', borderRadius: '24px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-            <h3 style={{ fontSize: '1.3rem', fontWeight: 700 }}>Market Trend (Bitcoin)</h3>
-            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>LAST 7 DAYS</div>
+        <div className="card" style={{ padding: '2rem', borderRadius: '24px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
+            <h3 style={{ fontSize: '1.3rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <BarChart3 size={20} color={chartColor} />
+              Market Trend (Bitcoin)
+            </h3>
+            <div style={{ display: 'flex', background: 'rgba(255,255,255,0.05)', padding: '4px', borderRadius: '10px', gap: '4px' }}>
+              {['1D', '7D', '1M', '1Y'].map(tf => (
+                <button
+                  key={tf}
+                  onClick={() => setTimeframe(tf)}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    background: timeframe === tf ? chartColor : 'transparent',
+                    color: timeframe === tf ? 'black' : 'var(--text-muted)',
+                    border: 'none',
+                    minWidth: '50px'
+                  }}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
           </div>
-          <div style={{ height: '320px' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="var(--primary)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                <XAxis dataKey="name" stroke="var(--text-muted)" fontSize={12} axisLine={false} tickLine={false} />
-                <YAxis hide domain={['auto', 'auto']} />
-                <Tooltip
-                  contentStyle={{ background: '#0d1b2a', border: '1px solid var(--border)', borderRadius: '12px', boxShadow: '0 10px 30px rgba(0,0,0,0.3)' }}
-                  itemStyle={{ color: 'white', fontWeight: 600 }}
-                  labelStyle={{ color: 'var(--text-muted)', marginBottom: '4px' }}
-                />
-                <Area type="monotone" dataKey="value" stroke="var(--primary)" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
-              </AreaChart>
-            </ResponsiveContainer>
+          <div style={{ height: '320px', flex: 1, position: 'relative' }}>
+            {historyLoading ? (
+              <ChartSkeleton />
+            ) : chartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={chartColor} stopOpacity={0.3} />
+                      <stop offset="95%" stopColor={chartColor} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                  <XAxis
+                    dataKey="name"
+                    stroke="var(--text-muted)"
+                    fontSize={11}
+                    axisLine={false}
+                    tickLine={false}
+                    minTickGap={30}
+                  />
+                  <YAxis
+                    hide
+                    domain={['auto', 'auto']}
+                  />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div style={{
+                            background: '#0d1b2a',
+                            border: `1px solid ${chartColor}44`,
+                            borderRadius: '12px',
+                            padding: '12px',
+                            boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                            backdropFilter: 'blur(10px)'
+                          }}>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginBottom: '4px', fontWeight: 600 }}>
+                              {payload[0].payload.dateStr}
+                            </p>
+                            <p style={{ color: 'white', fontSize: '1.1rem', fontWeight: 800 }}>
+                              ${payload[0].value.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke={chartColor}
+                    strokeWidth={3}
+                    fillOpacity={1}
+                    fill="url(#colorValue)"
+                    animationDuration={1000}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+                No historical data available for this timeframe.
+              </div>
+            )}
           </div>
         </div>
 

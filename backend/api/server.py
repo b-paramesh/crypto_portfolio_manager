@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from fastapi import FastAPI, HTTPException, Query, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import uvicorn
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
@@ -202,9 +202,9 @@ allow_premium = RoleChecker(["premium", "admin"])
 allow_admin = RoleChecker(["admin"])
 
 class AlertRequest(BaseModel):
-    coin_id: str = ""
-    alert_type: str = "price_above"
-    threshold: float = 5.0
+    coin_id: str = Field(..., min_length=1)
+    alert_type: str = Field(default="price_above", pattern="^(price_above|price_below|volatility_high)$")
+    threshold: float = Field(..., gt=0)
 
 class PortfolioCreate(BaseModel):
     name: str = "My Portfolio"
@@ -369,13 +369,6 @@ async def list_portfolios(current_user: User = Depends(get_current_user)):
     data = await portfolio_mgr.list_portfolios(str(current_user.id))
     return {"status": "success", "data": sanitize_for_json(data)}
 
-@app.get("/api/portfolio/{portfolio_id}", summary="Get portfolio details")
-async def get_portfolio(portfolio_id: str, current_user: User = Depends(get_current_user)):
-    portfolio = await portfolio_mgr.get_portfolio(portfolio_id)
-    if not portfolio:
-        raise HTTPException(404, "Portfolio not found")
-    return {"status": "success", "data": sanitize_for_json(portfolio)}
-
 @app.post("/api/portfolio/sample", summary="Create demo portfolio")
 async def create_sample_portfolio(current_user: User = Depends(get_current_user)):
     """Create a sample portfolio with demo data."""
@@ -424,24 +417,31 @@ async def create_alert(req: AlertRequest, current_user: User = Depends(get_curre
             req.threshold
         )
         if alert_id:
+            logger.info(f"✅ Alert {alert_id} created for user {user_id_str}")
             return {"status": "success", "alert_id": str(alert_id)}
         raise HTTPException(500, "Failed to create alert")
     except Exception as e:
         if isinstance(e, HTTPException): raise e
-        logger.error(f"Error creating alert: {e}")
-        raise HTTPException(500, "Internal server error while creating alert")
+        logger.error(f"Error creating alert: {e}", exc_info=True)
+        raise HTTPException(500, f"Internal server error while creating alert: {str(e)}")
+
+@app.post("/api/create-alert", summary="Create price alert (alias)")
+async def create_alert_alias(req: AlertRequest, current_user: User = Depends(get_current_user)):
+    """Explicitly requested route for alert creation."""
+    return await create_alert(req, current_user)
 
 @app.get("/api/alerts", summary="List user alerts")
 async def list_alerts(current_user: User = Depends(get_current_user)):
     try:
         db = get_database()
         user_id_str = str(current_user.id)
-        # Try both ObjectId and string representations just in case
-        query = {"$or": [{"user_id": user_id_str}]}
+        # Use userId matching user's requested schema
+        query = {"$or": [{"userId": user_id_str}]}
         if len(user_id_str) == 24:
-            query["$or"].append({"user_id": ObjectId(user_id_str)})
+            query["$or"].append({"userId": ObjectId(user_id_str)})
             
         alerts = await db["alerts"].find(query).to_list(length=100)
+        return {"status": "success", "data": sanitize_for_json(alerts)}
         return {"status": "success", "data": sanitize_for_json(alerts)}
     except Exception as e:
         logger.error(f"Error listing alerts: {e}")
@@ -452,9 +452,13 @@ async def delete_alert(alert_id: str, current_user: User = Depends(get_current_u
     try:
         db = get_database()
         user_id_str = str(current_user.id)
-        query = {"_id": ObjectId(alert_id), "$or": [{"user_id": user_id_str}]}
+        # Match by id and userId
+        query = {"_id": ObjectId(alert_id)}
+        user_query = {"$or": [{"userId": user_id_str}]}
         if len(user_id_str) == 24:
-            query["$or"].append({"user_id": ObjectId(user_id_str)})
+            user_query["$or"].append({"userId": ObjectId(user_id_str)})
+        
+        query.update(user_query)
             
         result = await db["alerts"].delete_one(query)
         if result.deleted_count:
@@ -489,11 +493,16 @@ async def analyze_risk(coin_id: str, days: int = 365):
 
 @app.get("/api/predict/{coin_id}", summary="Predict future price")
 @limiter.limit("20/minute")
-async def predict_price(request: Request, coin_id: str, days: int = Query(7, ge=1, le=30), model: str = Query("random_forest"), current_user: User = Depends(allow_premium)):
+async def predict_price(request: Request, coin_id: str, days: int = Query(7, ge=1, le=30), model: str = Query("random_forest")):
     try:
-        df = await collector.get_price_history_from_db(coin_id, days=365)
+        # Prefer high-quality yfinance OHLCV data for models
+        df = predictor.get_ohlcv_data(coin_id, days=365)
+        
         if df.empty:
-            df = await collector.fetch_historical_prices(coin_id, days=365)
+            logger.info(f"yfinance failed for {coin_id}, falling back to DB...")
+            df = await collector.get_price_history_from_db(coin_id, days=365)
+            if df.empty:
+                df = await collector.fetch_historical_prices(coin_id, days=365)
             
         if df.empty:
             raise HTTPException(404, "No historical data found for prediction")
@@ -646,7 +655,7 @@ async def get_market_report(current_user: User = Depends(get_current_user)):
 
 @app.post("/api/ai/chat", summary="AI Chatbot", description="Interact with the learning AI assistant for market insights and portfolio advice")
 @limiter.limit("10/minute")
-async def ai_chat(request: Request, req: ChatRequest, current_user: User = Depends(allow_premium)):
+async def ai_chat(request: Request, req: ChatRequest, current_user: User = Depends(get_current_user)):
     """AI Chatbot endpoint with long-term memory learning."""
     try:
         msg = req.message.lower()
@@ -753,7 +762,7 @@ async def ping():
     return {"status": "ok", "timestamp": datetime.utcnow(), "db_mock": get_database().is_mock}
 
 @app.post("/api/exchange/sync", summary="Sync with exchange API")
-async def sync_exchange(exchange_id: str, api_keys: Dict, current_user: User = Depends(allow_premium)):
+async def sync_exchange(exchange_id: str, api_keys: Dict, current_user: User = Depends(get_current_user)):
     try:
         # Update exchange service with keys (in real life, store securely in DB)
         exchange_svc.api_keys[exchange_id] = api_keys
@@ -766,8 +775,11 @@ async def sync_exchange(exchange_id: str, api_keys: Dict, current_user: User = D
 # ============================================================
 # PHASE 4: ADVANCED PORTFOLIO ENDPOINTS
 # ============================================================
+# Note: These routes are intentionally placed BEFORE /api/portfolio/{portfolio_id} 
+# later in the routing logic, but since they don't share identical paths with 
+# get_portfolio except the prefix, wait.
 @app.get("/api/portfolio/backtest", summary="Run portfolio backtest")
-async def run_backtest(coin_id: str, initial_capital: float = 10000.0, days: int = 365, strategy: str = "buy_and_hold", current_user: User = Depends(allow_premium)):
+async def run_backtest(coin_id: str, initial_capital: float = 10000.0, days: int = 365, strategy: str = "buy_and_hold", current_user: User = Depends(get_current_user)):
     try:
         result = await backtester.run_backtest(coin_id, initial_capital, days, strategy)
         return {"status": "success", "data": result}
@@ -777,23 +789,50 @@ async def run_backtest(coin_id: str, initial_capital: float = 10000.0, days: int
 
 @app.get("/api/portfolio/tax-report", summary="Generate tax report")
 async def get_tax_report(current_user: User = Depends(get_current_user)):
+    """Generate a tax-compliant report based on full transaction history."""
     try:
         db = get_database()
         user_id_str = str(current_user.id)
+        # 1. Fetch all transactions for this user
         query = {"$or": [{"user_id": user_id_str}]}
         if len(user_id_str) == 24:
             query["$or"].append({"user_id": ObjectId(user_id_str)})
             
-        portfolio = await db["portfolios"].find_one(query)
-        if not portfolio or "assets" not in portfolio:
-            raise HTTPException(404, "No portfolio found for tax reporting")
+        transactions = await db["transactions"].find(query).sort("timestamp", 1).to_list(length=1000)
+        
+        # 2. Fetch current market data for unrealized P&L calculation
+        # We'll get the latest price for each coin found in transactions
+        market_data_map = {}
+        coin_ids = list(set([tx["coin_id"] for tx in transactions if "coin_id" in tx]))
+        for cid in coin_ids:
+            latest = await db["market_data"].find_one({"coin_id": cid}, sort=[("timestamp", -1)])
+            if latest:
+                market_data_map[cid] = latest["price"]
             
-        report = report_gen.generate_tax_report(portfolio["assets"])
+        # 3. Generate report (robust even if transactions is empty - generate_tax_report handles it)
+        report = report_gen.generate_tax_report(transactions, market_data_map)
+        
+        if "error" in report and not transactions:
+            # Fallback if no transactions found yet - return an empty successful report instead of error
+            return {"status": "success", "data": {
+                "num_assets": 0, 
+                "summary": {"total_realized_gain": 0, "total_unrealized_pnl": 0},
+                "details": [],
+                "message": "No transactions found. Start by adding assets to your portfolio!"
+            }}
+            
         return {"status": "success", "data": report}
     except Exception as e:
         if isinstance(e, HTTPException): raise e
         logger.error(f"Tax report error: {e}")
         raise HTTPException(500, "Failed to generate tax report")
+
+@app.get("/api/portfolio/{portfolio_id}", summary="Get portfolio details")
+async def get_portfolio(portfolio_id: str, current_user: User = Depends(get_current_user)):
+    portfolio = await portfolio_mgr.get_portfolio(portfolio_id)
+    if not portfolio:
+        raise HTTPException(404, "Portfolio not found")
+    return {"status": "success", "data": sanitize_for_json(portfolio)}
 
 async def seed_initial_data():
     """Seed initial demo data for offline storage."""

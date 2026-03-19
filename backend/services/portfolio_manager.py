@@ -107,6 +107,25 @@ class PortfolioManager:
             logger.error(f"Error fetching portfolio {portfolio_id}: {e}")
             return None
 
+    async def _record_transaction(self, user_id: ObjectId, coin_id: str, type: str, quantity: float, price: float, portfolio_id: ObjectId):
+        """Hidden helper to record individual transaction history for tax purposes."""
+        db = get_database()
+        try:
+            tx = {
+                "user_id": user_id,
+                "portfolio_id": portfolio_id,
+                "coin_id": coin_id,
+                "type": type.upper(), # BUY, SELL, TRANSFER, STAKING
+                "quantity": abs(quantity),
+                "price": price,
+                "total_value": abs(quantity) * price,
+                "timestamp": datetime.utcnow()
+            }
+            await db["transactions"].insert_one(tx)
+            logger.info(f"Recorded {type} transaction for {coin_id}")
+        except Exception as e:
+            logger.error(f"Failed to record transaction: {e}")
+
     async def add_asset(self, portfolio_id: str, coin_id: str, quantity: float, purchase_price: float) -> bool:
         """Add an asset to a portfolio, averaging into existing if found (DCA)."""
         db = get_database()
@@ -116,6 +135,11 @@ class PortfolioManager:
             if not portfolio:
                 logger.error(f"Portfolio {portfolio_id} not found")
                 return False
+            
+            user_id = portfolio["user_id"]
+            
+            # 2. Record the discrete transaction for tax history
+            await self._record_transaction(user_id, coin_id, "BUY", quantity, purchase_price, ObjectId(portfolio_id))
             
             assets = portfolio.get("assets", [])
             existing_idx = next((i for i, a in enumerate(assets) if a.get("coin_id") == coin_id), None)
@@ -165,9 +189,27 @@ class PortfolioManager:
             return False
 
     async def remove_asset(self, portfolio_id: str, coin_id: str) -> bool:
-        """Remove all holdings of a specific coin from a portfolio."""
+        """Remove all holdings of a specific coin, recording a full SELL transaction."""
         db = get_database()
         try:
+            portfolio = await db["portfolios"].find_one({"_id": ObjectId(portfolio_id)})
+            if not portfolio: return False
+            
+            # Find the asset to get quantity
+            asset = next((a for a in portfolio.get("assets", []) if a["coin_id"] == coin_id), None)
+            if asset:
+                # Fetch current market price for the sell record
+                market_data = await db["market_data"].find_one({"coin_id": coin_id}, sort=[("timestamp", -1)])
+                current_price = market_data["price"] if market_data else asset["purchase_price"]
+                
+                await self._record_transaction(
+                    portfolio["user_id"], 
+                    coin_id, "SELL", 
+                    asset["quantity"], 
+                    current_price, 
+                    ObjectId(portfolio_id)
+                )
+
             await db["portfolios"].update_one(
                 {"_id": ObjectId(portfolio_id)},
                 {"$pull": {"assets": {"coin_id": coin_id}}, "$set": {"updated_at": datetime.utcnow()}}

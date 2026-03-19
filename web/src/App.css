@@ -327,6 +327,15 @@ select option {
   }
 }
 
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
 /* Portfolio Layout Responsiveness */
 @media (max-width: 992px) {
   .portfolio-layout {

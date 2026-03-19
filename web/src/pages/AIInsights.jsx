@@ -11,9 +11,12 @@ export default function AIInsights() {
   const [selectedModel, setSelectedModel] = useState('random_forest')
   const [historicalData, setHistoricalData] = useState([])
 
+  const [errorMsg, setErrorMsg] = useState(null)
+
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
+      setErrorMsg(null)
       try {
         const [pred, risk, history] = await Promise.all([
           apiFetch(`/api/predict/${selectedCoin}?days=30&model=${selectedModel}`),
@@ -25,6 +28,11 @@ export default function AIInsights() {
         setHistoricalData(history.data || [])
       } catch (err) {
         console.error('Error fetching AI insights:', err)
+        setErrorMsg('Failed to load insights. ' + err.message)
+        // Clear old stale data so the graph doesn't stay frozen
+        setPredictions({})
+        setRiskData({})
+        setHistoricalData([])
       } finally {
         setLoading(false)
       }
@@ -42,32 +50,36 @@ export default function AIInsights() {
       type: 'Historical'
     }))
 
-    if (!predictions.predicted_price_final) return history
+    if (!predictions.predictions || !predictions.predictions.length) return history
 
-    // Add a few projected points leading to the prediction
-    const lastHistory = history[history.length - 1]
-    const projection = []
-    const daysToPredict = 30
-    const startPrice = lastHistory.price
-    const endPrice = predictions.predicted_price_final
+    // Map real predictions from API
+    const forecast = predictions.predictions.map(pred => ({
+      name: new Date(pred.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+      price: pred.predicted_price,
+      type: 'Predicted'
+    }))
 
-    for (let i = 1; i <= 5; i++) {
-      const nextDate = new Date(historicalData[historicalData.length - 1].timestamp)
-      nextDate.setDate(nextDate.getDate() + Math.round(i * (daysToPredict / 5)))
-
-      projection.push({
-        name: nextDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-        price: startPrice + (endPrice - startPrice) * (i / 5),
-        type: 'Predicted'
-      })
-    }
-
-    return [...history, ...projection]
+    // We keep the last history point as a connector for the dashed line
+    return [...history, ...forecast]
   }, [historicalData, predictions])
 
   if (loading) return (
     <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center' }}>
       <div className="loader">Running ML Models...</div>
+    </div>
+  )
+
+  if (errorMsg) return (
+    <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '1rem' }}>
+      <AlertCircle size={48} color="var(--danger)" />
+      <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>Prediction Error</h2>
+      <p style={{ color: 'var(--text-muted)' }}>{errorMsg}</p>
+      <button
+        onClick={() => window.location.reload()}
+        style={{ marginTop: '1rem', padding: '0.8rem 1.5rem', background: 'var(--primary)', border: 'none', borderRadius: '8px', color: 'white', fontWeight: 600, cursor: 'pointer' }}
+      >
+        Retry
+      </button>
     </div>
   )
 
@@ -103,11 +115,12 @@ export default function AIInsights() {
                 minWidth: '200px'
               }}
             >
-              <option value="decision_tree">Decision Tree</option>
+              <option value="lstm">LSTM (Time Series)</option>
+              <option value="xgboost">XGBoost (Advanced Boost)</option>
+              <option value="lightgbm">LightGBM (Efficient)</option>
               <option value="random_forest">Random Forest</option>
               <option value="linear_regression">Linear Regression</option>
-              <option value="gradient_boosting">Gradient Boosting</option>
-              <option value="ensemble">Ensemble (All)</option>
+              <option value="ensemble">Ensemble (Combined)</option>
             </select>
           </div>
 
@@ -135,6 +148,27 @@ export default function AIInsights() {
           </div>
         </div>
       </header>
+      255:
+      {predictions.metrics?.status === 'unreliable' && (
+        <div style={{
+          background: 'rgba(255, 71, 87, 0.1)',
+          border: '1px solid var(--danger)',
+          borderRadius: '16px',
+          padding: '1.5rem',
+          marginBottom: '2.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '15px'
+        }}>
+          <AlertCircle size={24} color="var(--danger)" />
+          <div>
+            <h4 style={{ margin: 0, color: 'var(--danger)', fontWeight: 700 }}>⚠ Model Confidence is Low</h4>
+            <p style={{ margin: '4px 0 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              The predictions for {selectedCoin} using {selectedModel} are currently marked as unreliable (R²: {predictions.metrics?.r2_score.toFixed(2)}). Please use caution.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="stat-grid" style={{ marginBottom: '2.5rem' }}>
         <div className="stat-card" style={{ padding: '2rem', borderRadius: '24px' }}>
@@ -171,8 +205,11 @@ export default function AIInsights() {
           <div className="stat-value" style={{ fontSize: '2.2rem', fontWeight: 800 }}>
             {predictions.metrics?.r2_score ? `${(predictions.metrics.r2_score * 100).toFixed(1)}%` : '84.2%'}
           </div>
-          <div style={{ marginTop: '0.8rem', fontSize: '1rem', color: 'var(--text-muted)', fontWeight: 600 }}>
-            {selectedModel === 'ensemble' ? 'Ensemble Confidence' : `R² Score for ${selectedModel}`}
+          <div style={{ marginTop: '0.8rem', fontSize: '1.2rem', color: predictions.metrics?.status === 'unreliable' ? 'var(--danger)' : 'var(--success)', fontWeight: 700 }}>
+            {predictions.metrics?.status === 'unreliable' ? '⚠ Low Confidence' : '✔ Trustworthy'}
+          </div>
+          <div style={{ marginTop: '0.4rem', fontSize: '0.9rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+            MAPE: {predictions.metrics?.mape?.toFixed(1) || 'N/A'}%
           </div>
         </div>
       </div>
@@ -230,7 +267,7 @@ export default function AIInsights() {
                   contentStyle={{ background: '#0d1b2a', border: '1px solid var(--border)', borderRadius: '12px' }}
                   itemStyle={{ fontWeight: 700 }}
                 />
-                <ReferenceLine x={historicalData[historicalData.length - 1]?.timestamp} stroke="rgba(255,255,255,0.2)" strokeDasharray="3 3" />
+                <ReferenceLine x={chartData.filter(d => d.type === 'Historical').slice(-1)[0]?.name} stroke="rgba(255,255,255,0.2)" strokeDasharray="3 3" />
                 <Area
                   type="monotone"
                   dataKey="price"

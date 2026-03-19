@@ -80,18 +80,49 @@ export default function TaxReports() {
             </div>
 
             {report && (
-                <div className="card" style={{ marginTop: '2.5rem', padding: '2rem', borderRadius: '24px', border: '1px solid var(--primary)', background: 'rgba(0, 212, 255, 0.03)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <CheckCircle2 size={24} color="var(--primary)" />
-                            <div>
-                                <h4 style={{ fontWeight: 700, fontSize: '1.1rem' }}>Report Successfully Generated</h4>
-                                <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Processed {report.num_transactions} transactions.</p>
+                <div style={{ marginTop: '2.5rem', display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                    {/* Summary Cards */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
+                        <div className="card" style={{ padding: '1.5rem', borderRadius: '20px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '5px' }}>Realized Gain</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#00e676' }}>
+                                ${report.summary?.total_realized_gain?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
                             </div>
                         </div>
-                        <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'right' }}>
-                            Saved to: <br />
-                            <code style={{ fontSize: '0.75rem', color: 'var(--primary)', wordBreak: 'break-all' }}>{report.csv_path}</code>
+                        <div className="card" style={{ padding: '1.5rem', borderRadius: '20px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '5px' }}>Realized Loss</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#ff5252' }}>
+                                ${report.summary?.total_realized_loss?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                            </div>
+                        </div>
+                        <div className="card" style={{ padding: '1.5rem', borderRadius: '20px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '5px' }}>Unrealized P&L</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 800, color: (report.summary?.total_unrealized_pnl >= 0 ? 'var(--primary)' : '#ff5252') }}>
+                                ${report.summary?.total_unrealized_pnl?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+                            </div>
+                        </div>
+                        <div className="card" style={{ padding: '1.5rem', borderRadius: '20px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '5px' }}>Total Assets</div>
+                            <div style={{ fontSize: '1.4rem', fontWeight: 800 }}>{report.num_assets || 0}</div>
+                        </div>
+                    </div>
+
+                    {/* Report Status */}
+                    <div className="card" style={{ padding: '2rem', borderRadius: '24px', border: '1px solid var(--primary)', background: 'rgba(0, 212, 255, 0.03)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <CheckCircle2 size={24} color="var(--primary)" />
+                                <div>
+                                    <h4 style={{ fontWeight: 700, fontSize: '1.1rem' }}>Report Successfully Generated</h4>
+                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>
+                                        {report.message || `Processed ${report.num_assets} asset histories with FIFO cost-basis.`}
+                                    </p>
+                                </div>
+                            </div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'right' }}>
+                                Saved to local reports directory: <br />
+                                <code style={{ fontSize: '0.75rem', color: 'var(--primary)', wordBreak: 'break-all' }}>{report.csv_path}</code>
+                            </div>
                         </div>
                     </div>
                 </div>

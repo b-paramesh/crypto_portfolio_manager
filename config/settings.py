@@ -75,6 +75,35 @@ ML_CONFIG = {
     "sequence_length": 60,       # LSTM sequence length
     "lstm_epochs": 50,
     "lstm_batch_size": 32,
+    "use_hyperparameter_tuning": True,  # Enable Grid/Random Search
+    "tuning_search_type": "random",     # Options: "grid", "random"
+    "tuning_cv_folds": 3,               # Cross-validation folds
+    
+    # Search spaces for hyperparameters
+    "param_grids": {
+        "random_forest": {
+            "n_estimators": [50, 100, 200],
+            "max_depth": [10, 15, 20, None],
+            "min_samples_split": [2, 5, 10],
+            "min_samples_leaf": [1, 2, 4]
+        },
+        "gradient_boosting": {
+            "n_estimators": [100, 200, 300],
+            "learning_rate": [0.01, 0.05, 0.1],
+            "max_depth": [3, 5, 8],
+            "subsample": [0.8, 1.0]
+        },
+        "decision_tree": {
+            "max_depth": [5, 10, 15, 20, None],
+            "min_samples_split": [2, 5, 10, 20],
+            "min_samples_leaf": [1, 2, 5, 10]
+        },
+        "linear_regression": {
+            # LinearRegression doesn't have many hyperparameters to tune in sklearn
+            # besides fit_intercept, but we include it for consistency
+            "fit_intercept": [True, False]
+        }
+    }
 }
 
 # ============================================================

@@ -14,51 +14,67 @@ export default function Alerts() {
     threshold: ''
   })
 
+  const fetchAlerts = async () => {
+    try {
+      const data = await apiFetch('/api/alerts', { auth: true })
+      setAlerts(data.data || [])
+    } catch (err) {
+      console.error('Error fetching alerts:', err)
+    }
+  }
+
+  const fetchMarketData = async () => {
+    try {
+      const data = await apiFetch('/api/market?per_page=50')
+      setMarketData(data.data || [])
+      if (data.data?.length > 0 && !alertForm.coin_id) {
+        setAlertForm(prev => ({ ...prev, coin_id: data.data[0].coin_id }))
+      }
+    } catch (err) {
+      console.error('Error fetching market data:', err)
+    }
+  }
+
+  const init = async () => {
+    await Promise.all([fetchAlerts(), fetchMarketData()])
+    setLoading(false)
+  }
+
   useEffect(() => {
-    const fetchAlerts = async () => {
-      try {
-        const data = await apiFetch('/api/alerts', { auth: true })
-        setAlerts(data.data || [])
-      } catch (err) {
-        console.error('Error fetching alerts:', err)
-      }
-    }
-
-    const fetchMarketData = async () => {
-      try {
-        const data = await apiFetch('/api/market?per_page=50')
-        setMarketData(data.data || [])
-        if (data.data?.length > 0 && !alertForm.coin_id) {
-          setAlertForm(prev => ({ ...prev, coin_id: data.data[0].coin_id }))
-        }
-      } catch (err) {
-        console.error('Error fetching market data:', err)
-      }
-    }
-
-    const init = async () => {
-      await Promise.all([fetchAlerts(), fetchMarketData()])
-      setLoading(false)
-    }
     init()
   }, [])
 
   const handleCreateAlert = async (e) => {
     e.preventDefault()
+    if (!alertForm.threshold || parseFloat(alertForm.threshold) <= 0) {
+      alert('Please enter a valid price threshold greater than 0.')
+      return
+    }
+
     setIsSubmitting(true)
+    console.log('DEBUG: Submitting alertForm:', alertForm)
     try {
-      await apiFetch('/api/alerts', {
+      const response = await apiFetch('/api/create-alert', {
         method: 'POST',
         body: {
-          ...alertForm,
+          coin_id: alertForm.coin_id,
+          alert_type: alertForm.alert_type,
           threshold: parseFloat(alertForm.threshold)
         },
         auth: true
       })
-      setIsModalOpen(false)
-      setAlertForm({ ...alertForm, threshold: '' })
-      fetchAlerts()
+
+
+      if (response.status === 'success') {
+        alert(`Successfully created alert for ${alertForm.coin_id.toUpperCase()}!`)
+        setIsModalOpen(false)
+        setAlertForm(prev => ({ ...prev, threshold: '' }))
+        fetchAlerts()
+      } else {
+        throw new Error(response.message || 'Unknown error occurred')
+      }
     } catch (err) {
+      console.error('Alert creation error:', err)
       alert('Failed to create alert: ' + err.message)
     } finally {
       setIsSubmitting(false)
@@ -84,14 +100,14 @@ export default function Alerts() {
           <h1 style={{ fontSize: '2.4rem', fontWeight: 800, marginBottom: '0.4rem' }}>AI Alerts</h1>
           <p style={{ color: 'var(--text-muted)', fontSize: '1.1rem' }}>Smart notifications for price movements and risk events.</p>
         </div>
-        <button 
+        <button
           onClick={() => setIsModalOpen(true)}
           className="btn"
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '8px', 
-            padding: '0.8rem 1.5rem', 
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '0.8rem 1.5rem',
             borderRadius: '12px',
             background: 'linear-gradient(90deg, var(--primary), var(--secondary))',
             color: 'black',
@@ -104,9 +120,9 @@ export default function Alerts() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
         {alerts.length === 0 ? (
-          <div className="card" style={{ 
-            gridColumn: '1 / -1', 
-            padding: '5rem 2rem', 
+          <div className="card" style={{
+            gridColumn: '1 / -1',
+            padding: '5rem 2rem',
             textAlign: 'center',
             background: 'rgba(13, 27, 42, 0.4)',
             border: '1px dashed var(--border)',
@@ -121,23 +137,23 @@ export default function Alerts() {
             <div key={alert.id} className="card" style={{ padding: '1.5rem', borderRadius: '20px', border: '1px solid var(--border)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.2rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{ 
-                    width: 40, 
-                    height: 40, 
-                    borderRadius: '12px', 
-                    background: 'rgba(0, 212, 255, 0.1)', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center' 
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: '12px',
+                    background: 'rgba(0, 212, 255, 0.1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
                   }}>
                     <Bell size={20} color="var(--primary)" />
                   </div>
                   <div>
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{alert.coin_id.toUpperCase()}</h3>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{(alert.asset || alert.coin_id || '').toUpperCase()}</h3>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>PRICE ALERT</span>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => handleDeleteAlert(alert.id)}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}
                 >
@@ -147,29 +163,29 @@ export default function Alerts() {
 
               <div style={{ marginBottom: '1.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1.2rem', fontWeight: 700, marginBottom: '4px' }}>
-                  {alert.alert_type === 'price_above' ? <TrendingUp size={18} color="var(--positive)" /> : <TrendingDown size={18} color="var(--negative)" />}
-                  {alert.alert_type === 'price_above' ? 'Price Above' : 'Price Below'}
-                  <span style={{ color: 'var(--primary)' }}>${alert.threshold.toLocaleString()}</span>
+                  {(alert.alertType || alert.alert_type) === 'price_above' ? <TrendingUp size={18} color="var(--positive)" /> : <TrendingDown size={18} color="var(--negative)" />}
+                  {(alert.alertType || alert.alert_type) === 'price_above' ? 'Price Above' : 'Price Below'}
+                  <span style={{ color: 'var(--primary)' }}>${(alert.priceThreshold || alert.threshold || 0).toLocaleString()}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                   <Clock size={14} />
-                  Created {new Date(alert.created_at || Date.now()).toLocaleDateString()}
+                  Created {new Date(alert.createdAt || alert.created_at || Date.now()).toLocaleDateString()}
                 </div>
               </div>
 
-              <div style={{ 
-                padding: '0.8rem', 
-                background: alert.is_active ? 'rgba(0, 230, 118, 0.05)' : 'rgba(255, 23, 68, 0.05)', 
+              <div style={{
+                padding: '0.8rem',
+                background: (alert.status === 'active' || alert.is_active) ? 'rgba(0, 230, 118, 0.05)' : 'rgba(255, 23, 68, 0.05)',
                 borderRadius: '10px',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '8px',
                 fontSize: '0.85rem',
                 fontWeight: 600,
-                color: alert.is_active ? 'var(--positive)' : 'var(--negative)'
+                color: (alert.status === 'active' || alert.is_active) ? 'var(--positive)' : 'var(--negative)'
               }}>
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: alert.is_active ? 'var(--positive)' : 'var(--negative)' }} />
-                {alert.is_active ? 'Actively Monitoring' : 'Triggered / Inactive'}
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: (alert.status === 'active' || alert.is_active) ? 'var(--positive)' : 'var(--negative)' }} />
+                {(alert.status === 'active' || alert.is_active) ? 'Actively Monitoring' : 'Triggered / Inactive'}
               </div>
             </div>
           ))
@@ -184,26 +200,32 @@ export default function Alerts() {
               <Bell size={24} color="var(--primary)" />
               Create AI Alert
             </h2>
-            
+
             <form onSubmit={handleCreateAlert}>
               <div style={{ marginBottom: '1.2rem' }}>
                 <label className="form-label">Select Asset</label>
-                <select 
+                <select
                   className="form-input"
                   value={alertForm.coin_id}
-                  onChange={(e) => setAlertForm({ ...alertForm, coin_id: e.target.value })}
+                  onChange={(e) => {
+                    console.log('DEBUG: Dropdown selected value:', e.target.value);
+                    setAlertForm({ ...alertForm, coin_id: e.target.value });
+                  }}
                 >
-                  {marketData.map(coin => (
-                    <option key={coin.coin_id} value={coin.coin_id}>
-                      {coin.name} ({coin.symbol.toUpperCase()})
-                    </option>
-                  ))}
+                  {marketData.map(coin => {
+                    const id = coin.coin_id || coin.id || 'unknown';
+                    return (
+                      <option key={id} value={id}>
+                        {coin.name} ({(coin.symbol || '').toUpperCase()})
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
-              
+
               <div style={{ marginBottom: '1.2rem' }}>
                 <label className="form-label">Alert Type</label>
-                <select 
+                <select
                   className="form-input"
                   value={alertForm.alert_type}
                   onChange={(e) => setAlertForm({ ...alertForm, alert_type: e.target.value })}
@@ -212,11 +234,11 @@ export default function Alerts() {
                   <option value="price_below">Price goes below</option>
                 </select>
               </div>
-              
+
               <div style={{ marginBottom: '2rem' }}>
                 <label className="form-label">Price Threshold (USD)</label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   step="any"
                   className="form-input"
                   placeholder="e.g. 75000"
@@ -225,9 +247,9 @@ export default function Alerts() {
                   required
                 />
               </div>
-              
+
               <div style={{ display: 'flex', gap: '1rem' }}>
-                <button 
+                <button
                   type="button"
                   className="btn btn-secondary"
                   onClick={() => setIsModalOpen(false)}
@@ -235,7 +257,7 @@ export default function Alerts() {
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   type="submit"
                   disabled={isSubmitting}
                   className="btn btn-primary"

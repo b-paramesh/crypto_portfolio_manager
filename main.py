@@ -10,6 +10,13 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
 
+# Fix Unicode encoding for Windows terminals
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except (AttributeError, Exception):
+        pass
+
 # Ensure project root is in path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 

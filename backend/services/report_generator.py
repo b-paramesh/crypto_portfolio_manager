@@ -106,41 +106,127 @@ class ReportGenerator:
         return {"generated_at": str(datetime.now()), "predictions": rows, "csv_path": str(csv_path)}
 
     @timer
-    def generate_tax_report(self, transactions):
+    def generate_tax_report(self, transactions, current_market_data=None):
         """
-        Generate a tax-compliant transaction report (CSV).
-        Computes realized P&L (simple FIFO/LIFO logic would go here).
+        Generate a tax-compliant report using FIFO (First-In, First-Out).
+        Calculates realized and unrealized P&L.
         """
         if not transactions:
-            return {"error": "No transaction history"}
+            return {"error": "No transaction history found"}
+            
+        # 1. Group transactions by coin_id
+        assets_history = {}
+        for tx in transactions:
+            cid = tx.get("coin_id")
+            if cid not in assets_history:
+                assets_history[cid] = []
+            assets_history[cid].append(tx)
             
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         report_data = []
+        summary = {
+            "total_realized_gain": 0.0,
+            "total_realized_loss": 0.0,
+            "total_unrealized_pnl": 0.0,
+            "total_cost_basis": 0.0,
+            "total_holding_value": 0.0
+        }
         
-        for tx in transactions:
-            report_data.append({
-                "date": tx.get("purchase_date", ""),
-                "coin_id": tx.get("coin_id", ""),
-                "type": "BUY", # Simplification
-                "amount": tx.get("quantity", 0),
-                "price": tx.get("purchase_price", 0),
-                "total_cost": tx.get("quantity", 0) * tx.get("purchase_price", 0),
-                "notes": tx.get("notes", "")
-            })
+        # 2. Process each asset using FIFO
+        for coin_id, txs in assets_history.items():
+            # Sort by timestamp
+            txs.sort(key=lambda x: x.get("timestamp") or datetime.min)
             
+            buys = [] # Queue for FIFO
+            realized_pnl = 0.0
+            
+            for tx in txs:
+                txtype = tx.get("type", "BUY")
+                qty = float(tx.get("quantity", 0))
+                price = float(tx.get("price", 0))
+                
+                if txtype == "BUY":
+                    buys.append({"qty": qty, "price": price, "date": tx.get("timestamp")})
+                elif txtype == "SELL":
+                    sell_qty = qty
+                    while sell_qty > 0 and buys:
+                        oldest_buy = buys[0]
+                        if oldest_buy["qty"] <= sell_qty:
+                            # Fully consume this buy
+                            gain = oldest_buy["qty"] * (price - oldest_buy["price"])
+                            realized_pnl += gain
+                            sell_qty -= oldest_buy["qty"]
+                            buys.pop(0)
+                        else:
+                            # Partially consume this buy
+                            gain = sell_qty * (price - oldest_buy["price"])
+                            realized_pnl += gain
+                            oldest_buy["qty"] -= sell_qty
+                            sell_qty = 0
+                    
+                    # Record the sale for the CSV
+                    report_data.append({
+                        "date": tx.get("timestamp"),
+                        "coin_id": coin_id,
+                        "type": "SELL",
+                        "quantity": qty,
+                        "price": price,
+                        "realized_pnl": realized_pnl, # This is cumulative for simplicity in row
+                        "notes": tx.get("notes", "")
+                    })
+                
+            # After processing all current transactions, calculate unrealized for what's left
+            remaining_qty = sum(b["qty"] for b in buys)
+            remaining_cost = sum(b["qty"] * b["price"] for b in buys)
+            
+            # Find current price
+            current_price = 0
+            if current_market_data and coin_id in current_market_data:
+                current_price = current_market_data[coin_id]
+            
+            unrealized_pnl = 0
+            current_value = 0
+            if current_price > 0:
+                current_value = remaining_qty * current_price
+                unrealized_pnl = current_value - remaining_cost
+            
+            # Add remaining holdings to report data (at the end or per coin)
+            if remaining_qty > 0:
+                report_data.append({
+                    "date": "HOLDING",
+                    "coin_id": coin_id,
+                    "type": "HOLD",
+                    "quantity": remaining_qty,
+                    "avg_cost": remaining_cost / remaining_qty if remaining_qty > 0 else 0,
+                    "current_price": current_price,
+                    "unrealized_pnl": unrealized_pnl
+                })
+                
+            if realized_pnl >= 0: summary["total_realized_gain"] += realized_pnl
+            else: summary["total_realized_loss"] += abs(realized_pnl)
+            
+            summary["total_unrealized_pnl"] += unrealized_pnl
+            summary["total_cost_basis"] += remaining_cost
+            summary["total_holding_value"] += current_value
+
+        # 3. Export CSV
         csv_path = REPORTS_DIR / f"tax_report_{timestamp}.csv"
         if report_data:
             with open(csv_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=report_data[0].keys())
+                # Get all unique keys found in any row for fieldnames
+                keys = set()
+                for row in report_data: keys.update(row.keys())
+                writer = csv.DictWriter(f, fieldnames=sorted(list(keys)))
                 writer.writeheader()
                 writer.writerows(report_data)
                 
         logger.info(f"Tax report generated: {csv_path}")
         return {
             "generated_at": str(datetime.now()), 
-            "num_transactions": len(report_data),
+            "num_assets": len(assets_history),
             "csv_path": str(csv_path),
-            "summary": "Full transaction history for tax filing purposes."
+            "summary": summary,
+            "details": report_data
         }
 
     def _export_holdings_csv(self, holdings, csv_path):

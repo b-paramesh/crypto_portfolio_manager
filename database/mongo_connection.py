@@ -32,6 +32,34 @@ def json_decoder(dct):
                 except: pass
     return dct
 
+class AsyncIter:
+    def __init__(self, data, parent_col, projection=None):
+        self.data = data
+        self.index = 0
+        self.parent_col = parent_col
+        self.projection = projection
+    def __aiter__(self):
+        return self
+    async def __anext__(self):
+        if self.index < len(self.data):
+            val = self.data[self.index].copy()
+            if self.projection and self.projection.get("_id") == 0:
+                val.pop("_id", None)
+            self.index += 1
+            return val
+        raise StopAsyncIteration
+    def limit(self, n):
+        self.data = self.data[:n]
+        return self
+    def sort(self, field, direction=1):
+        self.data = sorted(self.data, key=lambda x: x.get(field, datetime.min), reverse=(direction == -1))
+        return self
+    async def to_list(self, length=None):
+        data_to_return = self.data[:length] if length else self.data
+        if self.projection and self.projection.get("_id") == 0:
+            return [{k: v for k, v in d.items() if k != "_id"} for d in data_to_return]
+        return data_to_return
+
 class MemoryCollection:
     """Mock MongoDB collection for demonstration if real DB is down."""
     def __init__(self, name, parent_db=None):
@@ -47,30 +75,12 @@ class MemoryCollection:
         if query is None:
             query = {}
         
-        # Filter data based on query
-        filtered_data = []
-        for item in self.data:
-            match = True
-            for k, v in query.items():
-                item_val = item.get(k)
-                
-                # Handle ObjectId comparison (string vs object)
-                if k == "_id" or isinstance(item_val, ObjectId) or isinstance(v, ObjectId):
-                    if str(item_val) != str(v):
-                        match = False
-                        break
-                elif item_val != v:
-                    match = False
-                    break
-            if match:
-                filtered_data.append(item)
+        filtered_data = [item for item in self.data if self._match_document(item, query)]
 
         if not filtered_data:
             return None
 
-        # Simple mock for sort: if sorting by timestamp desc, just use the last one
         if sort:
-            # Simple sorting for mock
             sort_field, direction = sort[0]
             filtered_data = sorted(filtered_data, key=lambda x: x.get(sort_field, datetime.min), reverse=(direction == -1))
 
@@ -80,7 +90,33 @@ class MemoryCollection:
                 result.pop("_id", None)
             return result
             
-        return filtered_data[0]
+        return filtered_data[0].copy()
+
+
+    def _match_document(self, item, query):
+        if not query: return True
+        
+        # Special case for $or
+        if "$or" in query:
+            for option in query["$or"]:
+                if self._match_document(item, option):
+                    return True
+            return False
+
+        for k, v in query.items():
+            item_val = item.get(k)
+            if isinstance(v, dict):
+                # Handle basic $gte, $lte
+                try:
+                    if "$gte" in v and (item_val is None or item_val < v["$gte"]): return False
+                    if "$lte" in v and (item_val is None or item_val > v["$lte"]): return False
+                except: return False
+            # Handle ObjectId vs string comparison for any field
+            elif isinstance(v, (ObjectId, str)) and isinstance(item_val, (ObjectId, str)) and (isinstance(v, ObjectId) or isinstance(item_val, ObjectId)):
+                if str(v) != str(item_val): return False
+            elif item_val != v:
+                return False
+        return True
 
     async def insert_one(self, document):
         if "_id" not in document:
@@ -94,83 +130,29 @@ class MemoryCollection:
         return res
 
     def find(self, query=None, projection=None, sort=None):
-        # Returns a simple async iterator
-        class AsyncIter:
-            def __init__(self, data, parent_col, projection=None):
-                self.data = data
-                self.index = 0
-                self.parent_col = parent_col
-                self.projection = projection
-            def __aiter__(self):
-                return self
-            async def __anext__(self):
-                if self.index < len(self.data):
-                    val = self.data[self.index].copy()
-                    # Apply projection
-                    if self.projection:
-                        # Simple projection support: only handle {"_id": 0} for now
-                        if self.projection.get("_id") == 0:
-                            val.pop("_id", None)
-                    self.index += 1
-                    return val
-                raise StopAsyncIteration
-            def limit(self, n):
-                self.data = self.data[:n]
-                return self
-            def sort(self, field, direction=1):
-                # Simple sort implementation
-                self.data = sorted(self.data, key=lambda x: x.get(field, datetime.min), reverse=(direction == -1))
-                return self
-            async def to_list(self, length=None):
-                data_to_return = self.data[:length] if length else self.data
-                if self.projection and self.projection.get("_id") == 0:
-                    return [{k: v for k, v in d.items() if k != "_id"} for d in data_to_return]
-                return data_to_return
-        
-        # Filter data based on query
-        filtered_data = []
         if query is None: query = {}
-        for item in self.data:
-            match = True
-            for k, v in query.items():
-                item_val = item.get(k)
-                if isinstance(v, dict):
-                    # Handle basic $gte, $lte
-                    try:
-                        if "$gte" in v and item_val < v["$gte"]: match = False
-                        if "$lte" in v and item_val > v["$lte"]: match = False
-                    except: match = False # In case of type mismatch
-                elif k == "_id" or isinstance(item_val, ObjectId) or isinstance(v, ObjectId):
-                    if str(item_val) != str(v):
-                        match = False
-                        break
-                elif item_val != v:
-                    match = False
-                    break
-            if match:
-                filtered_data.append(item)
-        
+        filtered_data = [item for item in self.data if self._match_document(item, query)]
         return AsyncIter(filtered_data, self, projection)
 
     async def update_one(self, query, update, upsert=False):
         item = await self.find_one(query)
         if item:
-            if "$set" in update:
-                item.update(update["$set"])
-            if "$push" in update:
-                for k, v in update["$push"].items():
-                    if k not in item: item[k] = []
-                    item[k].append(v)
-            if "$pull" in update:
-                for k, v in update["$pull"].items():
-                    if k in item and isinstance(item[k], list):
-                        # Simple criteria matching
-                        if isinstance(v, dict):
-                            item[k] = [x for x in item[k] if not all(x.get(sk) == sv for sk, sv in v.items())]
-                        else:
-                            # Direct value match
-                            item[k] = [x for x in item[k] if x != v]
-            await self._save()
+            idx = next((i for i, d in enumerate(self.data) if str(d.get("_id")) == str(item.get("_id"))), -1)
+            if idx != -1:
+                target = self.data[idx]
+                if "$set" in update: target.update(update["$set"])
+                if "$push" in update:
+                    for k, v in update["$push"].items():
+                        if k not in target: target[k] = []
+                        target[k].append(v)
+                if "$pull" in update:
+                    for k, v in update["$pull"].items():
+                        if k in target and isinstance(target[k], list):
+                            if isinstance(v, dict):
+                                target[k] = [x for x in target[k] if not all(x.get(sk) == sv for sk, sv in v.items())]
+                            else:
+                                target[k] = [x for x in target[k] if x != v]
+                await self._save()
         elif upsert:
             new_item = query.copy()
             if "$set" in update: new_item.update(update["$set"])
@@ -187,24 +169,25 @@ class MemoryCollection:
     async def delete_one(self, query):
         item = await self.find_one(query)
         if item:
-            self.data.remove(item)
-            await self._save()
-            return type('obj', (object,), {'deleted_count': 1})
+            idx = next((i for i, d in enumerate(self.data) if str(d.get("_id")) == str(item.get("_id"))), -1)
+            if idx != -1:
+                self.data.pop(idx)
+                await self._save()
+                return type('obj', (object,), {'deleted_count': 1})
         return type('obj', (object,), {'deleted_count': 0})
 
+    async def delete_many(self, query):
+        if query is None: query = {}
+        initial_count = len(self.data)
+        self.data = [item for item in self.data if not self._match_document(item, query)]
+        deleted_count = initial_count - len(self.data)
+        if deleted_count > 0:
+            await self._save()
+        return type('obj', (object,), {'deleted_count': deleted_count})
+
     async def count_documents(self, query=None):
-        if query is None:
-            return len(self.data)
-        count = 0
-        for item in self.data:
-            match = True
-            for k, v in query.items():
-                if item.get(k) != v:
-                    match = False
-                    break
-            if match:
-                count += 1
-        return count
+        if query is None: return len(self.data)
+        return sum(1 for item in self.data if self._match_document(item, query))
 
 class MemoryDatabase:
     """Mock MongoDB database for demonstration."""
