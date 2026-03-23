@@ -52,7 +52,7 @@ An advanced cryptocurrency analytics platform combining CoinMarketCap-style mark
 ```
 Data Sources (CoinGecko API)
         ↓
-Data Collector → SQLite Database
+Data Collector → MongoDB / Offline JSON Storage
         ↓
 ┌─────────────────────────────────────┐
 │  Analytics Engine                   │
@@ -88,7 +88,7 @@ ai-crypto-investment-platform/
 ├── frontend/
 │   └── dashboard.py             # Streamlit dashboard
 ├── database/
-│   └── db_setup.py              # SQLAlchemy models & schema
+│   └── mongo_connection.py      # MongoDB connection & JSON fallback
 ├── utils/
 │   └── helpers.py               # Utilities & formatters
 ├── data/                        # CSV price data cache
@@ -162,9 +162,9 @@ python main.py analyze
 | Category | Technology |
 |----------|-----------|
 | Backend | Python 3.10+, FastAPI |
-| Dashboard | Streamlit, Plotly |
+| Dashboard | Modern React Web Dashboard |
 | ML | scikit-learn (LR, RF, GB) |
-| Database | SQLite, SQLAlchemy |
+| Database | MongoDB & Offline JSON Storage |
 | Data | Pandas, NumPy, SciPy |
 | API | CoinGecko (free tier) |
 | Parallel | concurrent.futures |

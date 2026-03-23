@@ -8,7 +8,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import requests
-from database.mongo_connection import get_database
+from database.mongo_connection import get_database, get_storage_name
 from utils.helpers import logger
 from config.settings import COINGECKO_BASE_URL, COINGECKO_API_KEY
 from ai_models.sentiment_analyzer import SentimentAnalyzer
@@ -115,7 +115,7 @@ class CryptoDataCollector:
             # Delete old market data if needed, but we store history here.
             # For simplicity, we just insert.
             await db["market_data"].insert_many(market_entries)
-            logger.info(f"Stored {len(market_entries)} market data points in MongoDB")
+            logger.info(f"Stored {len(market_entries)} market data points in {get_storage_name()}")
             
         return data
 

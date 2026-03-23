@@ -158,7 +158,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440
 # FASTAPI SETTINGS
 # ============================================================
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
-API_PORT = int(os.getenv("API_PORT", 8001))
+API_PORT = int(os.getenv("PORT", os.getenv("API_PORT", 8001)))
 
 # ============================================================
 # STREAMLIT SETTINGS

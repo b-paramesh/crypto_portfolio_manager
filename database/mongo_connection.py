@@ -5,11 +5,20 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from bson import ObjectId
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # MongoDB Configuration
-MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
 DATABASE_NAME = "crypto_intelligence_platform"
 MOCK_DATA_FILE = "database/offline_storage.json"
+# We define these as helpers but will fetch them fresh in connect_to_mongo
+def get_mongodb_url():
+    return os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+
+def get_use_offline_storage():
+    return os.getenv("USE_OFFLINE_STORAGE", "false").lower() == "true"
 
 class JSONEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -201,6 +210,9 @@ class MemoryDatabase:
             self.collections[name] = MemoryCollection(name, self)
         return self.collections[name]
 
+    def get_storage_name(self):
+        return "Offline JSON Storage"
+
     async def save_to_file(self):
         """Debounced save to file to prevent excessive disk I/O."""
         if self._save_task:
@@ -242,25 +254,43 @@ class MongoDB:
     db = None
     is_mock = False
 
+    def get_storage_name(self):
+        return "Offline JSON Storage" if self.is_mock else "MongoDB"
+
 db = MongoDB()
 
 async def connect_to_mongo():
+    mongodb_url = get_mongodb_url()
+    use_offline = get_use_offline_storage()
+    
+    if use_offline:
+        print("💡 Optimized Start: Using Dynamic JSON Offline Storage.")
+        db.db = MemoryDatabase()
+        db.is_mock = True
+        await db.db.load_from_file()
+        return
+
     try:
+        print(f"🔌 Connecting to MongoDB Atlas: {mongodb_url[:20]}...")
         # Robust connection with pooling and timeouts
         db.client = AsyncIOMotorClient(
-            MONGODB_URL, 
+            mongodb_url, 
             serverSelectionTimeoutMS=5000,
             maxPoolSize=100,
             minPoolSize=10
         )
+        print("📡 Sending ping to MongoDB...")
         # Verify connection with a ping
         await db.client.admin.command('ping')
+        print("✅ Ping successful!")
         db.db = db.client[DATABASE_NAME]
         db.is_mock = False
-        print(f"✅ Successfully connected to MongoDB at {MONGODB_URL}")
+        print(f"✅ Successfully connected to MongoDB at {mongodb_url[:20]}...")
         
         # Create necessary indexes
+        print("📂 Verifying database indexes...")
         await create_indexes()
+        print("🚀 Startup process complete.")
         
     except Exception as e:
         print(f"⚠️  MongoDB connection failed: {e}")
@@ -300,4 +330,10 @@ async def close_mongo_connection():
 
 def get_database():
     return db.db
+
+def get_storage_name():
+    """Returns the name of the currently active storage system."""
+    if db.is_mock and db.db is not None:
+        return db.db.get_storage_name()
+    return "MongoDB" if not db.is_mock else "Offline JSON Storage"
 

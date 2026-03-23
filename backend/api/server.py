@@ -58,6 +58,18 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/reports", StaticFiles(directory=str(REPORTS_DIR)), name="reports")
 
+# Mount React static files if they exist (Production)
+WEB_DIST_DIR = Path(__file__).resolve().parent.parent.parent / "web" / "dist"
+if WEB_DIST_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(WEB_DIST_DIR / "assets")), name="assets")
+    
+    @app.get("/{full_path:path}")
+    async def serve_react_app(full_path: str):
+        # API routes are handled by the main app, everything else goes to index.html
+        if full_path.startswith("api/") or full_path.startswith("reports/"):
+             raise HTTPException(status_code=404)
+        return StaticFiles(directory=str(WEB_DIST_DIR), html=True).get_response("index.html", None)
+
 # Socket.io setup
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
 socket_app = socketio.ASGIApp(sio, app)
@@ -759,7 +771,8 @@ async def market_update_task():
 
 @app.get("/api/ping", summary="Ping server")
 async def ping():
-    return {"status": "ok", "timestamp": datetime.utcnow(), "db_mock": get_database().is_mock}
+    from database.mongo_connection import db as db_obj
+    return {"status": "ok", "timestamp": datetime.utcnow(), "db_mock": db_obj.is_mock}
 
 @app.post("/api/exchange/sync", summary="Sync with exchange API")
 async def sync_exchange(exchange_id: str, api_keys: Dict, current_user: User = Depends(get_current_user)):

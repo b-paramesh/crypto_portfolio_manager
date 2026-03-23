@@ -1,8 +1,16 @@
-FROM python:3.10-slim
+# Stage 1: Build React Frontend
+FROM node:20-slim AS frontend-builder
+WORKDIR /web-build
+COPY web/package*.json ./
+RUN npm install
+COPY web/ ./
+RUN npm run build
 
+# Stage 2: Build Python Backend
+FROM python:3.10-slim
 WORKDIR /app
 
-# Install system dependencies needed for some ML packages
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
@@ -11,11 +19,14 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application
+# Copy backend code
 COPY . .
 
-# Expose ports for FastAPI (8001) and Streamlit (8501)
-EXPOSE 8001 8501
+# Copy built frontend from Stage 1
+COPY --from=frontend-builder /web-build/dist ./web/dist
 
-# Start command will be overridden by docker-compose
+# Expose port (Render uses $PORT)
+EXPOSE 8001
+
+# Start command
 CMD ["python", "main.py", "api"]
