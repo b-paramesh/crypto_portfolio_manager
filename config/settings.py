@@ -185,15 +185,14 @@ OPTIMIZATION_CONFIG = {
 # ============================================================
 def validate_config():
     """Verify that essential settings are present."""
-    critical_settings = [
-        ("SECRET_KEY", SECRET_KEY),
-    ]
+    is_render = os.getenv("RENDER", "false").lower() == "true"
     
-    missing = [name for name, val in critical_settings if not val or val == "dev-secret-change-me"]
-    
-    if missing:
-        print(f"[!] WARNING: Critical settings missing or using defaults: {', '.join(missing)}")
-        print("[*] Secure your application by setting these in a .env file.")
+    if not SECRET_KEY or SECRET_KEY == "dev-secret-change-me":
+        print(f"🔑 [NOTICE] Using a default/missing SECRET_KEY.")
+        if is_render:
+            print("💡 TIP: Set 'SECRET_KEY' in Render Environment Variables for better security.")
+        else:
+            print("💡 TIP: Set 'SECRET_KEY' in your .env file.")
 
 # Run validation on import
 validate_config()

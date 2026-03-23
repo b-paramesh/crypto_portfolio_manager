@@ -263,8 +263,14 @@ async def connect_to_mongo():
     mongodb_url = get_mongodb_url()
     use_offline = get_use_offline_storage()
     
-    if use_offline:
-        print("💡 Optimized Start: Using Dynamic JSON Offline Storage.")
+    # Check if running on Render but no MongoDB URL is provided (defaults to localhost)
+    is_render = os.getenv("RENDER", "false").lower() == "true"
+    is_default_url = "localhost" in mongodb_url
+    
+    if use_offline or (is_render and is_default_url):
+        if is_render and is_default_url:
+            print("💡 Render environment detected: No MONGODB_URL provided.")
+        print("💡 Using Dynamic JSON Offline Storage.")
         db.db = MemoryDatabase()
         db.is_mock = True
         await db.db.load_from_file()

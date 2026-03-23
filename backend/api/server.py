@@ -759,6 +759,12 @@ async def ai_chat(request: Request, req: ChatRequest, current_user: User = Depen
 
 # Background task for real-time updates
 async def market_update_task():
+    # Initial delay to let the app settle and avoid immediate 429 from CoinGecko
+    import random
+    initial_delay = random.randint(15, 45)
+    logger.info(f"⏳ Market update task starting in {initial_delay}s...")
+    await asyncio.sleep(initial_delay)
+    
     while True:
         try:
             data = await collector.fetch_and_store_market_data(per_page=20)
