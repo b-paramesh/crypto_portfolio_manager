@@ -1,0 +1,14 @@
+.venv
+test_venv
+__pycache__
+.git
+.env
+data/
+database/
+reports/
+models/
+web/node_modules/
+node_modules/
+*.sqlite
+*.pyc
+*.pyo

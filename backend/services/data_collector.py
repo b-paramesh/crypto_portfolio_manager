@@ -65,7 +65,7 @@ class CryptoDataCollector:
             "sparkline": "true",
             "price_change_percentage": "1h,24h,7d"
         }
-        data = self._make_request("coins/markets", params)
+        data = await asyncio.to_thread(self._make_request, "coins/markets", params)
         if not data:
             return None
         
@@ -139,13 +139,20 @@ class CryptoDataCollector:
             return []
         
         cursor = db["market_data"].find({"timestamp": latest["timestamp"]}).limit(limit)
+        docs = await cursor.to_list(length=limit)
+        
+        # Batch fetch metadata to eliminate N+1 queries
+        coin_ids = [doc["coin_id"] for doc in docs]
+        meta_cursor = db["cryptocurrencies"].find({"coin_id": {"$in": coin_ids}})
+        meta_dict = {}
+        async for m in meta_cursor:
+            m.pop("_id", None)
+            meta_dict[m["coin_id"]] = m
+            
         results = []
-        async for doc in cursor:
-            # Join with metadata
-            meta = await db["cryptocurrencies"].find_one({"coin_id": doc["coin_id"]})
-            if meta:
-                meta.pop("_id", None)
-                doc.update(meta)
+        for doc in docs:
+            meta = meta_dict.get(doc["coin_id"], {})
+            doc.update(meta)
             doc["id"] = str(doc.pop("_id", ""))
             results.append(doc)
             
@@ -301,8 +308,8 @@ class CryptoDataCollector:
             except Exception as e:
                 logger.warning(f"Redis cache summary read error: {e}")
 
-        global_data = self.fetch_global_data()
-        fng_data = self.fetch_fear_and_greed_index()
+        global_data = await asyncio.to_thread(self.fetch_global_data)
+        fng_data = await asyncio.to_thread(self.fetch_fear_and_greed_index)
         
         # In mock mode, we'll generate some realistic values if APIs fail
         if not global_data:

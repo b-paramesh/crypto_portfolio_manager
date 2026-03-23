@@ -821,7 +821,7 @@ async def get_tax_report(current_user: User = Depends(get_current_user)):
                 "message": "No transactions found. Start by adding assets to your portfolio!"
             }}
             
-        return {"status": "success", "data": report}
+        return {"status": "success", "data": sanitize_for_json(report)}
     except Exception as e:
         if isinstance(e, HTTPException): raise e
         logger.error(f"Tax report error: {e}")

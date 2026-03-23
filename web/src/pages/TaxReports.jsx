@@ -119,12 +119,58 @@ export default function TaxReports() {
                                     </p>
                                 </div>
                             </div>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'right' }}>
-                                Saved to local reports directory: <br />
-                                <code style={{ fontSize: '0.75rem', color: 'var(--primary)', wordBreak: 'break-all' }}>{report.csv_path}</code>
+                            <div style={{ fontSize: '0.85rem', textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
+                                <span style={{ color: 'var(--text-muted)' }}>Ready for download</span>
+                                {report.csv_url && (
+                                    <a href={`${import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8001'}${report.csv_url}`} 
+                                       target="_blank" rel="noopener noreferrer" 
+                                       style={{ background: 'var(--primary)', color: '#000', padding: '8px 16px', borderRadius: '8px', textDecoration: 'none', fontWeight: 600, display: 'inline-block' }}>
+                                        Download CSV
+                                    </a>
+                                )}
                             </div>
                         </div>
                     </div>
+
+                    {report.details && report.details.length > 0 && (
+                        <div className="card" style={{ padding: '1.5rem', borderRadius: '24px', overflowX: 'auto' }}>
+                            <h3 style={{ marginBottom: '1.5rem', fontWeight: 700 }}>Transaction Logic & PnL</h3>
+                            <table className="market-table" style={{ width: '100%', minWidth: '800px', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr>
+                                        <th style={{ textAlign: 'left', padding: '12px', borderBottom: '1px solid var(--border)' }}>Date</th>
+                                        <th style={{ textAlign: 'left', padding: '12px', borderBottom: '1px solid var(--border)' }}>Asset</th>
+                                        <th style={{ textAlign: 'left', padding: '12px', borderBottom: '1px solid var(--border)' }}>Type</th>
+                                        <th style={{ textAlign: 'right', padding: '12px', borderBottom: '1px solid var(--border)' }}>Qty</th>
+                                        <th style={{ textAlign: 'right', padding: '12px', borderBottom: '1px solid var(--border)' }}>Price/Cost</th>
+                                        <th style={{ textAlign: 'right', padding: '12px', borderBottom: '1px solid var(--border)' }}>Realized P&L</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {report.details.map((row, idx) => (
+                                        <tr key={idx}>
+                                            <td style={{ padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)', color: 'var(--text-muted)' }}>{new Date(row.date || row.timestamp).toLocaleDateString()}</td>
+                                            <td style={{ padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)', fontWeight: 600 }}>{row.coin_id?.toUpperCase()}</td>
+                                            <td style={{ padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                                <span style={{ 
+                                                    padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 700,
+                                                    background: row.type === 'BUY' ? 'rgba(0, 230, 118, 0.1)' : 'rgba(255, 82, 82, 0.1)',
+                                                    color: row.type === 'BUY' ? '#00e676' : '#ff5252'
+                                                }}>
+                                                    {row.type}
+                                                </span>
+                                            </td>
+                                            <td style={{ padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)', textAlign: 'right' }}>{Number(row.qty || 0).toLocaleString(undefined, { maximumFractionDigits: 6 })}</td>
+                                            <td style={{ padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)', textAlign: 'right' }}>${Number(row.price || row.cost_basis || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                            <td style={{ padding: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)', textAlign: 'right', fontWeight: 600 }} className={row.realized_pnl > 0 ? 'positive' : (row.realized_pnl < 0 ? 'negative' : '')}>
+                                                {row.realized_pnl ? `$${Number(row.realized_pnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

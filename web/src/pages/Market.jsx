@@ -6,7 +6,7 @@ import { io } from 'socket.io-client'
 
 // Simple Sparkline component using SVG
 const Sparkline = ({ data, color }) => {
-  if (!data || data.length === 0) return null
+  if (!Array.isArray(data) || data.length === 0) return null
   const min = Math.min(...data)
   const max = Math.max(...data)
   const range = max - min
@@ -191,7 +191,8 @@ export default function Market() {
         ])
         setMarketData(mData.data || [])
         setSummary(sData.data || null)
-        setActiveAlerts(aData.data || [])
+        const validAlerts = (aData.data || []).filter(a => a.coin_id && a.threshold);
+        setActiveAlerts(validAlerts)
 
         // Default alert coin if data exists
         if (mData.data?.length > 0) {
@@ -381,7 +382,7 @@ export default function Market() {
               fontSize: '0.85rem'
             }}>
               <Bell size={14} color="var(--secondary)" />
-              <span>{alert.coin_id.toUpperCase()} {alert.alert_type === 'price_above' ? '≥' : '≤'} ${alert.threshold.toLocaleString()}</span>
+              <span>{alert.coin_id?.toUpperCase() || 'UNKNOWN'} {alert.alert_type === 'price_above' ? '≥' : '≤'} ${alert.threshold?.toLocaleString()}</span>
               <div
                 style={{ width: 8, height: 8, borderRadius: '50%', background: alert.is_active ? '#00e676' : '#ff1744' }}
                 title={alert.is_active ? 'Monitoring' : 'Triggered'}
@@ -638,8 +639,8 @@ export default function Market() {
               ))}
               {filteredData.length === 0 && (
                 <tr>
-                  <td colSpan="11" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-                    No assets found in this category.
+                  <td colSpan="12" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
+                    No assets found in this category. (If the entire market is blank, CoinGecko API rate limits may have been reached. Please try again in a minute.)
                   </td>
                 </tr>
               )}

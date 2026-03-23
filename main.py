@@ -33,8 +33,10 @@ from utils.helpers import logger, format_currency, format_percentage
 def run_api():
     """Launch the FastAPI server."""
     print(f"\n🔌 Launching FastAPI Server on port {API_PORT}...")
+    import os
     import uvicorn
-    uvicorn.run("backend.api.server:socket_app", host=API_HOST, port=API_PORT, reload=True)
+    is_dev = os.getenv("ENVIRONMENT", "development").lower() == "development"
+    uvicorn.run("backend.api.server:socket_app", host=API_HOST, port=API_PORT, reload=is_dev)
 
 
 def run_dashboard():

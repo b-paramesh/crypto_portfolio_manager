@@ -53,6 +53,7 @@ class ReportGenerator:
         csv_path = REPORTS_DIR / f"portfolio_report_{timestamp}.csv"
         self._export_holdings_csv(holdings, csv_path)
         report["csv_path"] = str(csv_path)
+        report["csv_url"] = f"/reports/{csv_path.name}"
         # Text summary
         report["text_summary"] = self._generate_text_summary(report)
         logger.info(f"Portfolio report generated: {csv_path}")
@@ -82,7 +83,7 @@ class ReportGenerator:
                 writer.writeheader(); writer.writerows(report_data)
         logger.info(f"Market report generated: {csv_path}")
         return {"generated_at": str(datetime.now()), "num_coins": len(report_data),
-            "csv_path": str(csv_path), "data": report_data}
+            "csv_path": str(csv_path), "csv_url": f"/reports/{csv_path.name}", "data": report_data}
 
     @timer
     def generate_prediction_report(self, predictions):
@@ -103,7 +104,7 @@ class ReportGenerator:
             with open(csv_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=rows[0].keys())
                 writer.writeheader(); writer.writerows(rows)
-        return {"generated_at": str(datetime.now()), "predictions": rows, "csv_path": str(csv_path)}
+        return {"generated_at": str(datetime.now()), "predictions": rows, "csv_path": str(csv_path), "csv_url": f"/reports/{csv_path.name}"}
 
     @timer
     def generate_tax_report(self, transactions, current_market_data=None):
@@ -225,6 +226,7 @@ class ReportGenerator:
             "generated_at": str(datetime.now()), 
             "num_assets": len(assets_history),
             "csv_path": str(csv_path),
+            "csv_url": f"/reports/{csv_path.name}" if report_data else "",
             "summary": summary,
             "details": report_data
         }

@@ -29,7 +29,7 @@ const HeatmapItem = ({ coin }) => {
       onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
     >
       <img src={coin.image} alt={coin.name} style={{ width: 24, height: 24, marginBottom: '8px' }} />
-      <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{coin.symbol.toUpperCase()}</span>
+      <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{coin.symbol?.toUpperCase()}</span>
       <span style={{ fontSize: '0.8rem' }}>{isPositive ? '+' : ''}{change.toFixed(2)}%</span>
     </div>
   );
