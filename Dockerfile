@@ -24,6 +24,9 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download NLTK data to bake into the image (Prevents runtime timeout)
+RUN python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('averaged_perceptron_tagger', quiet=True)"
+
 # Copy backend code
 COPY . .
 

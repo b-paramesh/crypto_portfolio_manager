@@ -31,9 +31,7 @@ from config.settings import (
 )
 from database.mongo_connection import connect_to_mongo, close_mongo_connection, get_database
 from backend.models.schemas import User, Portfolio, Transaction, PyObjectId
-from backend.services.data_collector import CryptoDataCollector, generate_sample_data
-from backend.services.portfolio_manager import PortfolioManager
-from backend.services.alert_system import AlertSystem
+# Initialized at first request via LazyService (see below)
 from utils.helpers import logger
 from config.settings import REPORTS_DIR
 
@@ -104,10 +102,10 @@ class LazyService:
     def __getattr__(self, name):
         return getattr(self._get_instance(), name)
 
-# Initialize base services (lightweight)
-collector = CryptoDataCollector(redis_url=REDIS_URL, enable_redis=ENABLE_REDIS)
-portfolio_mgr = PortfolioManager()
-alert_system = AlertSystem()
+# Defer initialization of all services (Lazy Loading) to ensure instant startup!
+collector = LazyService("backend.services.data_collector", "CryptoDataCollector", redis_url=REDIS_URL, enable_redis=ENABLE_REDIS)
+portfolio_mgr = LazyService("backend.services.portfolio_manager", "PortfolioManager")
+alert_system = LazyService("backend.services.alert_system", "AlertSystem")
 
 # Lazy-loaded heavy services (ML / Analytics)
 risk_analyzer = LazyService("ai_models.risk_analyzer", "RiskAnalyzer")

@@ -10,16 +10,20 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from textblob import TextBlob
 from utils.helpers import logger
 
-# Ensure NLTK data is available
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt', quiet=True)
+def download_nltk_data():
+    """Helper to ensure NLTK data is available without blocking startup if already present."""
+    for pkg in ['punkt', 'averaged_perceptron_tagger']:
+        try:
+            nltk.data.find(f'tokenizers/{pkg}' if pkg == 'punkt' else f'taggers/{pkg}')
+        except LookupError:
+            logger.info(f"Downloading NLTK package: {pkg}")
+            nltk.download(pkg, quiet=True)
 
+# Try downloading, but don't let it crash the import if there's a network issue
 try:
-    nltk.data.find('taggers/averaged_perceptron_tagger')
-except LookupError:
-    nltk.download('averaged_perceptron_tagger', quiet=True)
+    download_nltk_data()
+except Exception as e:
+    logger.warning(f"Non-critical: NLTK download failed during import: {e}")
 
 class SentimentAnalyzer:
     """
