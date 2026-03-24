@@ -63,9 +63,9 @@ socket_app = socketio.ASGIApp(sio, app)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"])
 
-@app.api_route("/", methods=["GET", "HEAD"])
-async def root():
-    """Root endpoint to verify API is running."""
+@app.get("/api/health", summary="Health Check")
+async def health_check():
+    """Endpoint to verify API is running."""
     return {
         "status": "online",
         "message": "AI Crypto Investment Intelligence Platform API is running",
@@ -974,15 +974,21 @@ async def startup():
 async def shutdown():
     await close_mongo_connection()
 
-# React SPA Catch-all Route
 @app.get("/{full_path:path}")
 async def serve_react_app(request: Request, full_path: str):
-    # API routes are handled by the main app, everything else goes to index.html
+    """Serve the React application for any non-API routes."""
+    # API and reports routes should return 404 if not matched by their specific handlers
     if full_path.startswith("api/") or full_path.startswith("reports/"):
-         raise HTTPException(status_code=404)
+         return {"status": "error", "message": f"Route {full_path} not found"}
+         
+    # SPA Fallback: Serve index.html for all other routes
     if WEB_DIST_DIR.exists():
-        return await StaticFiles(directory=str(WEB_DIST_DIR), html=True).get_response("index.html", request.scope)
-    return {"status": "error", "message": "Frontend build not found"}
+        index_file = WEB_DIST_DIR / "index.html"
+        if index_file.exists():
+            return await StaticFiles(directory=str(WEB_DIST_DIR), html=True).get_response("index.html", request.scope)
+        else:
+            return {"status": "error", "message": "index.html not found in dist folder", "path": str(index_file)}
+    return {"status": "error", "message": "Frontend build not found", "path": str(WEB_DIST_DIR)}
 
 if __name__ == "__main__":
     uvicorn.run(socket_app, host=API_HOST, port=API_PORT)
