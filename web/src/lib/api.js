@@ -1,4 +1,4 @@
-export const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8001'
+export const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? 'http://127.0.0.1:8001' : '')
 
 export async function apiFetch(path, options = {}, authParam = false) {
   const { method = 'GET', headers = {}, body, timeout = 10000, auth: authOpt = false } = options
