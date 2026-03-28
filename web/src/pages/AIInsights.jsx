@@ -23,7 +23,14 @@ export default function AIInsights() {
           apiFetch(`/api/risk/${selectedCoin}?days=365`),
           apiFetch(`/api/market/${selectedCoin}/history?days=30`)
         ])
-        setPredictions(pred.data || {})
+
+        if (pred.status === 'processing') {
+          setErrorMsg('Models are being initialized for ' + selectedCoin + '. This usually takes 1-2 minutes. Please wait...');
+          setPredictions({})
+        } else {
+          setPredictions(pred.data || {})
+        }
+        
         setRiskData(risk.data || {})
         setHistoricalData(history.data || [])
       } catch (err) {

@@ -7,7 +7,7 @@ import os
 # Adjust sys.path to root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from fastapi import FastAPI, HTTPException, Query, Request, Depends
+from fastapi import FastAPI, HTTPException, Query, Request, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -510,8 +510,38 @@ async def analyze_risk(coin_id: str, days: int = 365):
 
 @app.get("/api/predict/{coin_id}", summary="Predict future price")
 @limiter.limit("20/minute")
-async def predict_price(request: Request, coin_id: str, days: int = Query(7, ge=1, le=30), model: str = Query("random_forest")):
+async def predict_price(request: Request, coin_id: str, background_tasks: BackgroundTasks, days: int = Query(7, ge=1, le=30), model: str = Query("random_forest")):
     try:
+        # Check if models exist. If not, trigger background training.
+        if not predictor.check_models_exist(coin_id):
+            logger.info(f"Models for {coin_id} missing. Starting background training...")
+            
+            # Helper to run training in background
+            def train_task():
+                try:
+                    # We need some data to train
+                    df_train = predictor.get_ohlcv_data(coin_id, days=365)
+                    if not df_train.empty:
+                        predictor.pipeline.run_training_cycle(df_train, coin_id)
+                        logger.info(f"✅ Background training for {coin_id} completed.")
+                    else:
+                        logger.warning(f"❌ Background training for {coin_id} failed: No data.")
+                except Exception as e:
+                    logger.error(f"❌ Background training for {coin_id} crashed: {e}")
+            
+            background_tasks.add_task(train_task)
+            
+            return {
+                "status": "processing", 
+                "message": "Models are being initialized in the background. Please retry in a few minutes.",
+                "data": {
+                    "is_training": True,
+                    "predicted_price": 0,
+                    "current_price": 0,
+                    "predictions": []
+                }
+            }
+
         # Prefer high-quality yfinance OHLCV data for models
         df = predictor.get_ohlcv_data(coin_id, days=365)
         
@@ -530,6 +560,12 @@ async def predict_price(request: Request, coin_id: str, days: int = Query(7, ge=
         else:
             result = predictor.predict_future_prices(df, coin_id, model_type=model, days_ahead=days)
             
+        # If prediction still returns an error (e.g. race condition), handle it
+        if "error" in result:
+             # This handles the case where check_models_exist was True but then they disappeared
+             # or failed to load.
+             return {"status": "processing", "message": "Model error. Re-initializing...", "data": {"is_training": True}}
+
         # Ensure 'predicted_price' exists for frontend compatibility
         if "predicted_price_final" in result and "predicted_price" not in result:
             result["predicted_price"] = result["predicted_price_final"]

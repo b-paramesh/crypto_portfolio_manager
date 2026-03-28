@@ -77,22 +77,24 @@ class CryptoPricePredictor:
                 
         return prediction
 
+    def check_models_exist(self, asset_id: str) -> bool:
+        """Check if models for this asset already exist on disk."""
+        model_names = ["linear_regression", "random_forest", "xgboost", "lstm"]
+        from config.settings import MODELS_DIR
+        for name in model_names:
+            path = MODELS_DIR / f"{asset_id}_{name}.pkl"
+            if path.exists():
+                return True
+        return False
+
     def predict_future_prices(self, df: pd.DataFrame, coin_id: str, 
-                              model_type: str = "random_forest", 
-                              days_ahead: int = 7) -> Dict:
+                               model_type: str = "random_forest", 
+                               days_ahead: int = 7) -> Dict:
         """Compatibility method for single-model prediction."""
         prediction = self.pipeline.get_prediction(df, coin_id, days_ahead)
-        if "error" in prediction:
-            self.pipeline.run_training_cycle(df, coin_id)
-            prediction = self.pipeline.get_prediction(df, coin_id, days_ahead)
-            
         return self._format_prediction(prediction)
 
     def ensemble_predict(self, df: pd.DataFrame, coin_id: str, days_ahead: int = 7) -> Dict:
         """Delegate to the modular pipeline ensemble."""
         prediction = self.pipeline.get_prediction(df, coin_id, days_ahead)
-        if "error" in prediction:
-            self.pipeline.run_training_cycle(df, coin_id)
-            prediction = self.pipeline.get_prediction(df, coin_id, days_ahead)
-            
         return self._format_prediction(prediction)
