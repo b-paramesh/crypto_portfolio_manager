@@ -24,6 +24,7 @@ from config.settings import API_HOST, API_PORT, MAX_WORKERS, DEFAULT_CRYPTOS
 from backend.services.data_collector import CryptoDataCollector
 from backend.services.portfolio_manager import PortfolioManager
 from utils.helpers import logger, format_currency, format_percentage
+from backend.api.server import socket_app as app # Export for Render
 
 def run_api():
     """Launch the FastAPI server."""
