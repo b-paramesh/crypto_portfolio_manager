@@ -814,7 +814,7 @@ async def market_update_task():
                     
         except Exception as e:
             print(f"Error in market update task: {e}")
-        await asyncio.sleep(60)
+        await asyncio.sleep(300)
 
 @app.get("/api/ping", summary="Ping server")
 async def ping():
