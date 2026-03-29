@@ -3,6 +3,7 @@ from typing import Dict, List, Optional
 from pathlib import Path
 import sys
 import os
+import asyncio
 
 # Adjust sys.path to root
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -532,6 +533,16 @@ async def predict_price(request: Request, coin_id: str, background_tasks: Backgr
             
             background_tasks.add_task(train_task)
             
+            # Fetch minimal data for a Lite Fallback so UI isn't empty
+            df_lite = await asyncio.to_thread(predictor.get_ohlcv_data, coin_id, days=30)
+            if not df_lite.empty:
+                lite_pred = predictor.prepare_lite_prediction(df_lite, coin_id)
+                return {
+                    "status": "processing", 
+                    "message": "Models are being initialized. Showing immediate statistical forecast.",
+                    "data": lite_pred
+                }
+
             return {
                 "status": "processing", 
                 "message": "Models are being initialized in the background. Please retry in a few minutes.",
